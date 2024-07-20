@@ -34,10 +34,12 @@
 
 ;;; Code:
 
-(require 'lsp-protocol)
-(require 'lsp-mode)
+;; (require 'lsp-protocol)
+;; (require 'lsp-mode)
 (require 'xref)
 (require 'dash)
+(require 'eglot)
+(require 'f)
 
 (defgroup lsp-ui-peek nil
   "Improve version of xref with peek feature."
@@ -520,11 +522,11 @@ XREFS is a list of references/definitions."
               (switch-to-buffer (marker-buffer marker)))
             (with-current-buffer buffer
               (lsp-ui-peek-mode -1))
-            (unless lsp--buffer-workspaces
-              (setq lsp--buffer-workspaces cur-buffer-workspaces)
-              (lsp-mode 1)
-              (dolist (workspace cur-buffer-workspaces)
-                (lsp--open-in-workspace workspace)))
+            ;; (unless lsp--buffer-workspaces
+            ;;   (setq lsp--buffer-workspaces cur-buffer-workspaces)
+            ;;   (lsp-mode 1)
+            ;;   (dolist (workspace cur-buffer-workspaces)
+            ;;     (lsp--open-in-workspace workspace)))
             (goto-char marker)
             (run-hooks 'xref-after-jump-hook))))
     (lsp-ui-peek--toggle-file)))
@@ -580,7 +582,7 @@ XREFS is a list of references/definitions."
   "Find INPUT references.
 METHOD is ‘references’, ‘definitions’, `implementation` or a custom kind.
 PARAM is the request params."
-  (setq lsp-ui-peek--method method)
+  (setq lsp-ui-peek--method (substring (symbol-name method) 1))
   (let ((xrefs (lsp-ui-peek--get-references method param)))
     (unless xrefs
       (user-error "Not found for: %s"  input))
@@ -603,28 +605,28 @@ PARAM is the request params."
 (defun lsp-ui-peek-find-references (&optional include-declaration extra)
   "Find references to the IDENTIFIER at point."
   (interactive)
-  (lsp-ui-peek--find-xrefs (symbol-at-point) "textDocument/references"
-                           (append extra (lsp--make-reference-params nil include-declaration))))
+  (lsp-ui-peek--find-xrefs (symbol-at-point) :textDocument/references
+                           (append (eglot--TextDocumentPositionParams) `(:context (:includeDeclaration t)))))
 
 (defun lsp-ui-peek-find-definitions (&optional extra)
   "Find definitions to the IDENTIFIER at point."
   (interactive)
-  (lsp-ui-peek--find-xrefs (symbol-at-point) "textDocument/definition"
-                           (append extra (lsp--text-document-position-params))))
+  (lsp-ui-peek--find-xrefs (symbol-at-point) :textDocument/definition
+                           (eglot--TextDocumentPositionParams)))
 
-(defun lsp-ui-peek-find-implementation (&optional extra)
-  "Find implementation locations of the symbol at point."
-  (interactive)
-  (lsp-ui-peek--find-xrefs (symbol-at-point) "textDocument/implementation"
-                           (append extra (lsp--text-document-position-params))))
+;; (defun lsp-ui-peek-find-implementation (&optional extra)
+;;   "Find implementation locations of the symbol at point."
+;;   (interactive)
+;;   (lsp-ui-peek--find-xrefs (symbol-at-point) "textDocument/implementation"
+;;                            (append extra (lsp--text-document-position-params))))
 
-(defun lsp-ui-peek-find-workspace-symbol (pattern &optional extra)
-  "Find symbols in the worskpace.
-The symbols are found matching PATTERN."
-  (interactive (list (read-string "workspace/symbol: "
-                                  nil 'xref--read-pattern-history)))
-  (lsp-ui-peek--find-xrefs pattern "workspace/symbol"
-                           (append extra (lsp-make-workspace-symbol-params :query pattern))))
+;; (defun lsp-ui-peek-find-workspace-symbol (pattern &optional extra)
+;;   "Find symbols in the worskpace.
+;; The symbols are found matching PATTERN."
+;;   (interactive (list (read-string "workspace/symbol: "
+;;                                   nil 'xref--read-pattern-history)))
+;;   (lsp-ui-peek--find-xrefs pattern "workspace/symbol"
+;;                            (append extra (lsp-make-workspace-symbol-params :query pattern))))
 
 (defun lsp-ui-peek-find-custom (method &optional extra)
   "Find custom references.
@@ -668,13 +670,10 @@ current buffer.  START and END are delimiters."
 LOCATION can be either a LSP Location or SymbolInformation."
   ;; TODO: Read more informations from SymbolInformation.
   ;;       For now, only the location is used.
-  (-let* ((loc (or (lsp:symbol-information-location loc) loc))
-          (range (or (lsp:location-range loc)
-                     (lsp:location-link-target-selection-range loc)
-                     (lsp:location-link-target-range loc)))
-          ((&Range :start pos-start :end pos-end) range)
-          ((&Position :line start-line :character start-col) pos-start)
-          ((&Position :line end-line :character end-col) pos-end)
+  (-let* (((&plist :range range) loc)
+          ((&plist :start pos-start :end pos-end) range)
+          ((&plist :line start-line :character start-col) pos-start)
+          ((&plist :line end-line :character end-col) pos-end)
           ((line . chunk) (lsp-ui-peek--extract-chunk-from-buffer pos-start start-col
                                                                   (when (= start-line end-line) end-col))))
     (list :summary (or line filename)
@@ -724,7 +723,7 @@ references.  The function returns a list of `ls-xref-item'."
 (defun lsp-ui-peek--get-references (method params)
   "Get all references/definitions for the symbol under point.
 Returns item(s)."
-  (-when-let* ((locs (lsp-request method params))
+  (-when-let* ((locs (eglot--request (eglot--current-server-or-lose) method params))
                (locs (if (listp locs)
                          (if (symbolp (car locs))
                              ;; A single plist was returned
@@ -737,27 +736,49 @@ Returns item(s)."
      (-lambda ((&plist :file))
        (or (f-file? file)
            (ignore
-            (lsp-log "The following file %s is missing, ignoring from the results."
-                     file))))
+            (message "The following file %s is missing, ignoring from the results." file))))
      (mapcar #'lsp-ui-peek--get-xrefs-list
-             (if (lsp:location-uri (car locs))
-                 ;; Location[]
-                 (--group-by (lsp--uri-to-path (lsp:location-uri it)) locs)
-               ;; LocationLink[]
-               (--group-by (lsp--uri-to-path (lsp:location-link-target-uri it)) locs))))))
+             (--group-by (lsp--uri-to-path (plist-get it :uri)) locs)))))
 
-(defvar lsp-ui-mode-map)
-
-(defun lsp-ui-peek-enable (_enable)
-  (interactive)
-  (unless (bound-and-true-p lsp-ui-mode-map)
-    (user-error "Please load lsp-ui before trying to enable lsp-ui-peek")))
-
-;; lsp-ui.el loads lsp-ui-peek.el, so we can’t ‘require’ lsp-ui.
-;; FIXME: Remove this cyclic dependency.
-(declare-function lsp-ui--workspace-path "lsp-ui" (path))
+;; (defvar lsp-ui-mode-map)
+;;
+;; (defun lsp-ui-peek-enable (_enable)
+;;   (interactive)
+;;   (unless (bound-and-true-p lsp-ui-mode-map)
+;;     (user-error "Please load lsp-ui before trying to enable lsp-ui-peek")))
+;;
+;; ;; lsp-ui.el loads lsp-ui-peek.el, so we can’t ‘require’ lsp-ui.
+;; ;; FIXME: Remove this cyclic dependency.
+;; (declare-function lsp-ui--workspace-path "lsp-ui" (path))
 
 (declare-function evil-set-jump "ext:evil-jumps.el" (&optional pos))
+
+
+;;; stolen or faked functions from lsp-mode / lsp-ui
+
+(defun lsp-ui--workspace-path (path)
+  (let* ((path (file-truename path))
+         (root (project-root (eglot--project (eglot--current-server-or-lose))))
+         (in-workspace (and root (string-prefix-p root path))))
+    (if in-workspace
+        (substring path (length root))
+      path)))
+
+(defun lsp--uri-to-path (uri)
+  (url-filename (url-generic-parse-url uri)))
+
+(defun lsp--position-to-point (pos)
+  (let ((line (plist-get pos :line))
+        (character (plist-get pos :character))
+        (inhibit-field-text-motion t))
+    (save-excursion
+      (goto-char (point-min))
+      (forward-line line)
+      (let ((line-end (line-end-position)))
+        (if (> character (- line-end (point)))
+            line-end
+          (forward-char character)
+          (point))))))
 
 (provide 'lsp-ui-peek)
 ;;; lsp-ui-peek.el ends here
