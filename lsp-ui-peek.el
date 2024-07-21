@@ -34,8 +34,6 @@
 
 ;;; Code:
 
-;; (require 'lsp-protocol)
-;; (require 'lsp-mode)
 (require 'xref)
 (require 'dash)
 (require 'eglot)
@@ -48,11 +46,6 @@
   :group 'lsp-ui
   :link '(custom-manual "(lsp-ui-peek) Top")
   :link '(info-link "(lsp-ui-peek) Customizing"))
-
-(defcustom lsp-ui-peek-enable t
-  "Whether or not to enable ‘lsp-ui-peek’."
-  :type 'boolean
-  :group 'lsp-ui)
 
 (defcustom lsp-ui-peek-show-directory t
   "Whether or not to show the directory of files."
@@ -515,18 +508,12 @@ XREFS is a list of references/definitions."
                                 (goto-char 1)
                                 (forward-line line)
                                 (forward-char column))
-                              (point-marker)))))
-                (cur-buffer-workspaces (and (boundp 'lsp--buffer-workspaces) lsp--buffer-workspaces)))
+                              (point-marker))))))
             (if other-window
                 (pop-to-buffer (marker-buffer marker) t)
               (switch-to-buffer (marker-buffer marker)))
             (with-current-buffer buffer
               (lsp-ui-peek-mode -1))
-            ;; (unless lsp--buffer-workspaces
-            ;;   (setq lsp--buffer-workspaces cur-buffer-workspaces)
-            ;;   (lsp-mode 1)
-            ;;   (dolist (workspace cur-buffer-workspaces)
-            ;;     (lsp--open-in-workspace workspace)))
             (goto-char marker)
             (run-hooks 'xref-after-jump-hook))))
     (lsp-ui-peek--toggle-file)))
@@ -593,12 +580,11 @@ PARAM is the request params."
              (not (cdr xrefs))
              (= (length (plist-get (car xrefs) :xrefs)) 1))
         (let ((x (car (plist-get (car xrefs) :xrefs))))
-          (-if-let (uri (lsp:location-uri x))
-              (-let (((&Range :start (&Position :line :character)) (lsp:location-range x)))
-                (lsp-ui-peek--goto-xref `(:file ,(lsp--uri-to-path uri) :line ,line :column ,character)))
-            (-let (((&Range :start (&Position :line :character)) (or (lsp:location-link-target-selection-range x)
-                                                                     (lsp:location-link-target-range x))))
-              (lsp-ui-peek--goto-xref `(:file ,(lsp--uri-to-path (lsp:location-link-target-uri x)) :line ,line :column ,character)))))
+          (-let* (((&plist :uri uri) x)
+                  ((&plist :range range) x)
+                  ((&plist :start pos) range)
+                  ((&plist :line line :character column) pos))
+              (lsp-ui-peek--goto-xref `(:file ,(lsp--uri-to-path uri) :line ,line :column ,column))))
       (lsp-ui-peek-mode)
       (lsp-ui-peek--show xrefs))))
 
@@ -628,13 +614,13 @@ PARAM is the request params."
 ;;   (lsp-ui-peek--find-xrefs pattern "workspace/symbol"
 ;;                            (append extra (lsp-make-workspace-symbol-params :query pattern))))
 
-(defun lsp-ui-peek-find-custom (method &optional extra)
-  "Find custom references.
-KIND is a symbol to name the references (definition, reference, ..).
-REQUEST is the method string to send the the language server.
-EXTRA is a plist of extra parameters."
-  (lsp-ui-peek--find-xrefs (symbol-at-point) method
-                           (append extra (lsp--text-document-position-params))))
+;; (defun lsp-ui-peek-find-custom (method &optional extra)
+;;   "Find custom references.
+;; KIND is a symbol to name the references (definition, reference, ..).
+;; REQUEST is the method string to send the the language server.
+;; EXTRA is a plist of extra parameters."
+;;   (lsp-ui-peek--find-xrefs (symbol-at-point) method
+;;                            (append extra (lsp--text-document-position-params))))
 
 (defun lsp-ui-peek--extract-chunk-from-buffer (pos start end)
   "Return the chunk of code pointed to by POS (a Position object) in the
@@ -740,16 +726,6 @@ Returns item(s)."
      (mapcar #'lsp-ui-peek--get-xrefs-list
              (--group-by (lsp--uri-to-path (plist-get it :uri)) locs)))))
 
-;; (defvar lsp-ui-mode-map)
-;;
-;; (defun lsp-ui-peek-enable (_enable)
-;;   (interactive)
-;;   (unless (bound-and-true-p lsp-ui-mode-map)
-;;     (user-error "Please load lsp-ui before trying to enable lsp-ui-peek")))
-;;
-;; ;; lsp-ui.el loads lsp-ui-peek.el, so we can’t ‘require’ lsp-ui.
-;; ;; FIXME: Remove this cyclic dependency.
-;; (declare-function lsp-ui--workspace-path "lsp-ui" (path))
 
 (declare-function evil-set-jump "ext:evil-jumps.el" (&optional pos))
 
