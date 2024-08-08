@@ -580,8 +580,10 @@ PARAM is the request params."
              (not (cdr xrefs))
              (= (length (plist-get (car xrefs) :xrefs)) 1))
         (let ((x (car (plist-get (car xrefs) :xrefs))))
-          (-let* (((&plist :uri uri) x)
-                  ((&plist :range range) x)
+          (-let* ((uri (or (plist-get x :uri) (plist-get x :targetUri)))
+                  (range (or (plist-get x :range)
+                             (plist-get x :targetSelectionRange)
+                             (plist-get x :targetRange)))
                   ((&plist :start pos) range)
                   ((&plist :line line :character column) pos))
               (lsp-ui-peek--goto-xref `(:file ,(lsp--uri-to-path uri) :line ,line :column ,column))))
@@ -656,7 +658,9 @@ current buffer.  START and END are delimiters."
 LOCATION can be either a LSP Location or SymbolInformation."
   ;; TODO: Read more informations from SymbolInformation.
   ;;       For now, only the location is used.
-  (-let* (((&plist :range range) loc)
+  (-let* ((range (or (plist-get loc :range)
+                     (plist-get loc :targetSelectionRange)
+                     (plist-get loc :targetRange)))
           ((&plist :start pos-start :end pos-end) range)
           ((&plist :line start-line :character start-col) pos-start)
           ((&plist :line end-line :character end-col) pos-end)
@@ -724,7 +728,9 @@ Returns item(s)."
            (ignore
             (message "The following file %s is missing, ignoring from the results." file))))
      (mapcar #'lsp-ui-peek--get-xrefs-list
-             (--group-by (lsp--uri-to-path (plist-get it :uri)) locs)))))
+             (if (plist-member (car locs) :uri)
+                 (--group-by (lsp--uri-to-path (plist-get it :uri)) locs)
+               (--group-by (lsp--uri-to-path (plist-get it :targetUri)) locs))))))
 
 
 (declare-function evil-set-jump "ext:evil-jumps.el" (&optional pos))
