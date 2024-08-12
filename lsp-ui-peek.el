@@ -736,7 +736,7 @@ Returns item(s)."
 (declare-function evil-set-jump "ext:evil-jumps.el" (&optional pos))
 
 
-;;; stolen or faked functions from lsp-mode / lsp-ui
+;;; stolen functions from lsp-ui or use eglot
 
 (defun lsp-ui--workspace-path (path)
   (let* ((path (file-truename path))
@@ -747,20 +747,10 @@ Returns item(s)."
       path)))
 
 (defun lsp--uri-to-path (uri)
-  (url-filename (url-generic-parse-url uri)))
+  (eglot-uri-to-path uri))
 
 (defun lsp--position-to-point (pos)
-  (let ((line (plist-get pos :line))
-        (character (plist-get pos :character))
-        (inhibit-field-text-motion t))
-    (save-excursion
-      (goto-char (point-min))
-      (forward-line line)
-      (let ((line-end (line-end-position)))
-        (if (> character (- line-end (point)))
-            line-end
-          (forward-char character)
-          (point))))))
+  (eglot--lsp-position-to-point pos))
 
 (provide 'lsp-ui-peek)
 ;;; lsp-ui-peek.el ends here
