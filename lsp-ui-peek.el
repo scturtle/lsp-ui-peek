@@ -147,7 +147,6 @@ recommended to set `lsp-ui-peek-fontify' to `never or `on-demand, otherwise it
 will cause performances issues.")
 
 (defvar-local lsp-ui-peek--buffer nil)
-;; (defvar-local lsp-ui-peek--overlay nil)
 (defvar-local lsp-ui-peek--list nil)
 (defvar-local lsp-ui-peek--last-xref nil)
 (defvar-local lsp-ui-peek--selection 0)
@@ -256,32 +255,6 @@ will cause performances issues.")
       (propertize "\n" 'face '(:height 1))
       (propertize "\n" 'face '(:height 0.5))))))
 
-;; (defun lsp-ui-peek--peek-new (src1 src2)
-;;   (-let* ((win-width (- (window-text-width)
-;;                         (if (bound-and-true-p display-line-numbers-mode)
-;;                             (+ 2 (line-number-display-width))
-;;                           0)))
-;;           (string (-some--> (-zip-fill "" src1 src2)
-;;                     (--map (lsp-ui-peek--adjust win-width it) it)
-;;                     (-map-indexed 'lsp-ui-peek--make-line it)
-;;                     (-concat it (lsp-ui-peek--make-footer))))
-;;           (next-line (line-beginning-position 2))
-;;           (ov (or (when (overlayp lsp-ui-peek--overlay) lsp-ui-peek--overlay)
-;;                   (make-overlay next-line next-line))))
-;;     (setq lsp-ui-peek--overlay ov)
-;;     (overlay-put ov 'after-string (mapconcat 'identity string ""))
-;;     (overlay-put ov 'display-line-numbers-disable t)
-;;     (overlay-put ov 'window (get-buffer-window))))
-
-;; (defun lsp-ui-peek--peek-hide ()
-;;   "Hide the chunk of code and restore previous state."
-;;   (when (overlayp lsp-ui-peek--overlay)
-;;     (delete-overlay lsp-ui-peek--overlay))
-;;   (setq lsp-ui-peek--overlay nil
-;;         lsp-ui-peek--last-xref nil)
-;;   (when lsp-ui-peek--win-start
-;;     (set-window-start (get-buffer-window) lsp-ui-peek--win-start)))
-
 (defun lsp-ui-peek--peek-new (src1 src2)
   (-let* ((win-width (frame-width))
           (lsp-ui-peek-list-width (/ (frame-width) 2))
@@ -293,7 +266,9 @@ will cause performances issues.")
     (posframe-show lsp-ui-peek--buffer
                    :string (mapconcat 'identity string "")
                    :min-width (frame-width)
-                   :poshandler #'posframe-poshandler-frame-center)))
+                   :poshandler #'posframe-poshandler-frame-center
+                   :override-parameters `((tab-bar-lines-keep-state . t))
+                   )))
 
 (defun lsp-ui-peek--peek-hide ()
   (when (bufferp lsp-ui-peek--buffer)
